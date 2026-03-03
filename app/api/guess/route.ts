@@ -1,14 +1,12 @@
+// app/api/guess/route.ts
 import { NextResponse } from "next/server";
-import { getGame, saveGame } from "@/lib/gameStore";
+import { redisGetGame, redisSaveGame } from "@/lib/redisGameStore";
 import { getPokemonByNameOrId, getSpeciesByNameOrId } from "@/lib/pokeapi";
 import { compareGuess } from "@/lib/compare";
 
 export const runtime = "nodejs";
 
-type Body = {
-  gameId: string;
-  guessName: string;
-};
+type Body = { gameId: string; guessName: string };
 
 export async function POST(req: Request) {
   let body: Body;
@@ -20,26 +18,22 @@ export async function POST(req: Request) {
 
   const gameId = (body.gameId || "").trim();
   const guessName = (body.guessName || "").trim().toLowerCase();
-
   if (!gameId || !guessName) {
     return NextResponse.json({ error: "Missing gameId or guessName" }, { status: 400 });
   }
 
-  const game = getGame(gameId);
+  const game = await redisGetGame(gameId);
   if (!game) {
     return NextResponse.json({ error: "Game not found (start a new one)" }, { status: 404 });
   }
 
   if (game.status !== "playing") {
-    return NextResponse.json(
-      { error: `Game is already ${game.status}. Start a new game.` },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: `Game is already ${game.status}. Start a new game.` }, { status: 400 });
   }
 
   if (game.guessCount >= game.maxGuesses) {
     game.status = "lost";
-    saveGame(game);
+    await redisSaveGame(game);
     return NextResponse.json({ error: "No guesses left. Start a new game." }, { status: 400 });
   }
 
@@ -63,7 +57,7 @@ export async function POST(req: Request) {
       game.targetName = targetCore.name;
     }
 
-    saveGame(game);
+    await redisSaveGame(game);
 
     return NextResponse.json({
       feedback,
